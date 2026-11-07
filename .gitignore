@@ -1,0 +1,32 @@
+# Local configuration
+local.properties
+
+# Pre-downloaded offline dependency repo (359MB, sandbox-only; never commit)
+local-repo/
+gradle-build.log
+proxy-probe.log
+
+# Gradle build directories
+.gradle/
+build/
+app/build/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.navigation/
+captures/
+
+# Keystores and secrets
+*.jks
+*.keystore
+.env
+secrets.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+build-tests/*.log
+build-tests/__pycache__/
