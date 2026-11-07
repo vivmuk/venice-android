@@ -13,13 +13,13 @@ import ai.venice.app.ui.theme.VeniceAmber
 import ai.venice.app.ui.theme.VeniceBorder
 import ai.venice.app.ui.theme.VeniceCard
 import ai.venice.app.ui.theme.VeniceCyan
-import ai.venice.app.ui.theme.VeniceMagenta
+import ai.venice.app.ui.theme.VeniceTangerine
 import ai.venice.app.ui.theme.VeniceMint
 import ai.venice.app.ui.theme.VeniceObsidian
 import ai.venice.app.ui.theme.VeniceRed
 import ai.venice.app.ui.theme.VeniceSurface
 import ai.venice.app.ui.theme.VeniceSurfaceElevated
-import ai.venice.app.ui.theme.VeniceViolet
+import ai.venice.app.ui.theme.VenicePhosphor
 import ai.venice.app.ui.theme.rememberFuturisticGradientBrush
 import android.Manifest
 import android.content.pm.PackageManager
@@ -295,7 +295,7 @@ fun ChatScreen(
                 icon = Icons.Default.Psychology,
                 label = "Reasoning: ${uiState.reasoningEffort.uppercase()}",
                 active = uiState.reasoningEffort != "none",
-                activeColor = VeniceMagenta,
+                activeColor = VeniceTangerine,
                 onClick = { onReasoningEffortChange(nextEffort) }
             )
 
@@ -304,7 +304,7 @@ fun ChatScreen(
                 icon = Icons.Default.Tune,
                 label = "Temp: ${uiState.temperature}",
                 active = false,
-                activeColor = VeniceViolet,
+                activeColor = VenicePhosphor,
                 onClick = { showParamsSheet = true }
             )
         }
@@ -316,7 +316,7 @@ fun ChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF281524))
+                    .background(Color(0xFF2A1A08))
                     .clickable { onNavigateSettings() }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -324,7 +324,7 @@ fun ChatScreen(
                 Icon(
                     imageVector = Icons.Default.Key,
                     contentDescription = null,
-                    tint = VeniceMagenta,
+                    tint = VeniceTangerine,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -517,7 +517,7 @@ fun ChatScreen(
                             .size(44.dp)
                             .clip(CircleShape)
                             .background(
-                                if (canSend) Brush.linearGradient(listOf(VeniceCyan, VeniceViolet))
+                                if (canSend) Brush.linearGradient(listOf(VeniceCyan, VenicePhosphor))
                                 else Brush.linearGradient(listOf(VeniceSurfaceElevated, VeniceSurfaceElevated))
                             )
                     ) {
@@ -738,7 +738,7 @@ private fun MessageBubble(
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.SemiBold,
-                color = if (isUser) VeniceMagenta else VeniceCyan
+                color = if (isUser) VeniceTangerine else VeniceCyan
             )
         }
 
@@ -755,7 +755,7 @@ private fun MessageBubble(
                 )
                 .background(
                     if (isUser) Color(0xFF1A233A)
-                    else if (message.isError) Color(0xFF2D121E)
+                    else if (message.isError) Color(0xFF2E1414)
                     else VeniceSurfaceElevated
                 )
                 .border(
@@ -780,7 +780,7 @@ private fun MessageBubble(
                         .padding(bottom = 10.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(VeniceObsidian.copy(alpha = 0.7f))
-                        .border(1.dp, VeniceViolet.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .border(1.dp, VenicePhosphor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                         .clickable { showReasoning = !showReasoning }
                         .padding(10.dp)
                 ) {
@@ -793,7 +793,7 @@ private fun MessageBubble(
                             Icon(
                                 imageVector = Icons.Default.Psychology,
                                 contentDescription = null,
-                                tint = VeniceMagenta,
+                                tint = VeniceTangerine,
                                 modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -801,7 +801,7 @@ private fun MessageBubble(
                                 text = "Reasoning Trace",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = VeniceMagenta
+                                color = VeniceTangerine
                             )
                         }
                         Icon(
@@ -963,7 +963,7 @@ private fun StreamingMessageBubble(
                     text = "Thinking: ${reasoning.takeLast(240)}",
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = VeniceMagenta,
+                    color = VeniceTangerine,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
@@ -1281,10 +1281,10 @@ private fun ChatParametersSheetContent(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (selected) VeniceMagenta.copy(alpha = 0.2f) else VeniceSurfaceElevated)
+                            .background(if (selected) VeniceTangerine.copy(alpha = 0.2f) else VeniceSurfaceElevated)
                             .border(
                                 1.dp,
-                                if (selected) VeniceMagenta else VeniceBorder,
+                                if (selected) VeniceTangerine else VeniceBorder,
                                 RoundedCornerShape(10.dp)
                             )
                             .clickable { onReasoningEffortChange(level) }
@@ -1295,7 +1295,7 @@ private fun ChatParametersSheetContent(
                             text = level.uppercase(),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (selected) VeniceMagenta else TextSecondary
+                            color = if (selected) VeniceTangerine else TextSecondary
                         )
                     }
                 }

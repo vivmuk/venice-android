@@ -9,7 +9,7 @@ import ai.venice.app.ui.theme.TextSecondary
 import ai.venice.app.ui.theme.VeniceBorder
 import ai.venice.app.ui.theme.VeniceCard
 import ai.venice.app.ui.theme.VeniceCyan
-import ai.venice.app.ui.theme.VeniceMagenta
+import ai.venice.app.ui.theme.VeniceTangerine
 import ai.venice.app.ui.theme.VeniceMint
 import ai.venice.app.ui.theme.VeniceObsidian
 import ai.venice.app.ui.theme.VeniceRed
@@ -427,10 +427,10 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (selected) VeniceMagenta.copy(alpha = 0.2f) else VeniceObsidian)
+                                    .background(if (selected) VeniceTangerine.copy(alpha = 0.2f) else VeniceObsidian)
                                     .border(
                                         1.dp,
-                                        if (selected) VeniceMagenta else VeniceBorder,
+                                        if (selected) VeniceTangerine else VeniceBorder,
                                         RoundedCornerShape(8.dp)
                                     )
                                     .clickable {
@@ -444,7 +444,7 @@ fun SettingsScreen(
                                     text = effort.uppercase(),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (selected) VeniceMagenta else TextSecondary
+                                    color = if (selected) VeniceTangerine else TextSecondary
                                 )
                             }
                         }

@@ -9,7 +9,7 @@ import ai.venice.app.ui.theme.TextSecondary
 import ai.venice.app.ui.theme.VeniceAmber
 import ai.venice.app.ui.theme.VeniceBorder
 import ai.venice.app.ui.theme.VeniceCyan
-import ai.venice.app.ui.theme.VeniceMagenta
+import ai.venice.app.ui.theme.VeniceTangerine
 import ai.venice.app.ui.theme.VeniceMint
 import ai.venice.app.ui.theme.VeniceObsidian
 import ai.venice.app.ui.theme.VeniceRed
@@ -75,7 +75,7 @@ fun VoiceConversationOverlay(
     val phaseColor: Color = when (phase) {
         VoicePhase.LISTENING -> VeniceCyan
         VoicePhase.TRANSCRIBING -> VeniceAmber
-        VoicePhase.THINKING -> VeniceMagenta
+        VoicePhase.THINKING -> VeniceTangerine
         VoicePhase.SPEAKING -> VeniceMint
         VoicePhase.IDLE -> TextSecondary
     }

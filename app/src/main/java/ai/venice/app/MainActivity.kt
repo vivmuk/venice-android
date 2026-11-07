@@ -12,7 +12,7 @@ import ai.venice.app.ui.theme.TextPrimary
 import ai.venice.app.ui.theme.TextSecondary
 import ai.venice.app.ui.theme.VeniceBorder
 import ai.venice.app.ui.theme.VeniceCyan
-import ai.venice.app.ui.theme.VeniceMagenta
+import ai.venice.app.ui.theme.VeniceTangerine
 import ai.venice.app.ui.theme.VeniceObsidian
 import ai.venice.app.ui.theme.VeniceRed
 import ai.venice.app.ui.theme.VeniceSurface
@@ -171,9 +171,9 @@ fun VeniceAppRoot(viewModel: VeniceViewModel) {
                         },
                         label = { Text("Image", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = VeniceMagenta,
-                            selectedTextColor = VeniceMagenta,
-                            indicatorColor = VeniceMagenta.copy(alpha = 0.14f),
+                            selectedIconColor = VeniceTangerine,
+                            selectedTextColor = VeniceTangerine,
+                            indicatorColor = VeniceTangerine.copy(alpha = 0.14f),
                             unselectedIconColor = TextSecondary,
                             unselectedTextColor = TextSecondary
                         )

@@ -8,13 +8,13 @@ import ai.venice.app.ui.theme.TextPrimary
 import ai.venice.app.ui.theme.TextSecondary
 import ai.venice.app.ui.theme.VeniceBorder
 import ai.venice.app.ui.theme.VeniceCyan
-import ai.venice.app.ui.theme.VeniceMagenta
+import ai.venice.app.ui.theme.VeniceTangerine
 import ai.venice.app.ui.theme.VeniceMint
 import ai.venice.app.ui.theme.VeniceObsidian
 import ai.venice.app.ui.theme.VeniceRed
 import ai.venice.app.ui.theme.VeniceSurface
 import ai.venice.app.ui.theme.VeniceSurfaceElevated
-import ai.venice.app.ui.theme.VeniceViolet
+import ai.venice.app.ui.theme.VenicePhosphor
 import ai.venice.app.ui.theme.rememberFuturisticGradientBrush
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -138,7 +138,7 @@ fun ImageScreen(
                 Icon(
                     imageVector = Icons.Default.AutoAwesome,
                     contentDescription = null,
-                    tint = VeniceMagenta,
+                    tint = VeniceTangerine,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -194,7 +194,7 @@ fun ImageScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = VeniceObsidian,
                             unfocusedContainerColor = VeniceObsidian,
-                            focusedBorderColor = VeniceMagenta,
+                            focusedBorderColor = VeniceTangerine,
                             unfocusedBorderColor = VeniceBorder,
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary
@@ -246,7 +246,7 @@ fun ImageScreen(
                             .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = VeniceMagenta,
+                            containerColor = VeniceTangerine,
                             contentColor = Color.White,
                             disabledContainerColor = VeniceObsidian,
                             disabledContentColor = TextMuted
@@ -364,10 +364,10 @@ fun ImageScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (selected) VeniceMagenta.copy(alpha = 0.16f) else VeniceSurfaceElevated)
+                                .background(if (selected) VeniceTangerine.copy(alpha = 0.16f) else VeniceSurfaceElevated)
                                 .border(
                                     1.dp,
-                                    if (selected) VeniceMagenta else VeniceBorder,
+                                    if (selected) VeniceTangerine else VeniceBorder,
                                     RoundedCornerShape(12.dp)
                                 )
                                 .clickable {
@@ -382,7 +382,7 @@ fun ImageScreen(
                                     text = model.displayName,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (selected) VeniceMagenta else TextPrimary
+                                    color = if (selected) VeniceTangerine else TextPrimary
                                 )
                                 Text(
                                     text = model.id,

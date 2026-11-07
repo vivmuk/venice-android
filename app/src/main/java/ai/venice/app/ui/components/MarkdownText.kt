@@ -5,7 +5,7 @@ import ai.venice.app.ui.theme.TextPrimary
 import ai.venice.app.ui.theme.TextSecondary
 import ai.venice.app.ui.theme.VeniceBorder
 import ai.venice.app.ui.theme.VeniceCyan
-import ai.venice.app.ui.theme.VeniceMagenta
+import ai.venice.app.ui.theme.VeniceTangerine
 import ai.venice.app.ui.theme.VeniceObsidian
 import ai.venice.app.ui.theme.VeniceSurface
 import androidx.compose.foundation.background
@@ -161,7 +161,7 @@ fun MarkdownText(
                                 modifier = Modifier
                                     .width(3.dp)
                                     .height(20.dp)
-                                    .background(VeniceMagenta, RoundedCornerShape(2.dp))
+                                    .background(VeniceTangerine, RoundedCornerShape(2.dp))
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(

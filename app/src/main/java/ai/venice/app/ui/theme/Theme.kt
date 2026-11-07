@@ -26,8 +26,8 @@ val VeniceCard = Color(0xFF1A2030)
 val VeniceBorder = Color(0xFF252D42)
 
 val VeniceCyan = Color(0xFF00F0FF)
-val VeniceViolet = Color(0xFF8A2BE2)
-val VeniceMagenta = Color(0xFFFF2A85)
+val VenicePhosphor = Color(0xFF2EFF8B)
+val VeniceTangerine = Color(0xFFFF6B35)
 val VeniceMint = Color(0xFF00E676)
 val VeniceAmber = Color(0xFFFFB300)
 val VeniceRed = Color(0xFFFF4D6D)
@@ -41,11 +41,11 @@ private val VeniceDarkColorScheme = darkColorScheme(
     onPrimary = VeniceObsidian,
     primaryContainer = Color(0xFF00363D),
     onPrimaryContainer = VeniceCyan,
-    secondary = VeniceMagenta,
+    secondary = VeniceTangerine,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFF3B122B),
-    onSecondaryContainer = VeniceMagenta,
-    tertiary = VeniceViolet,
+    secondaryContainer = Color(0xFF331A0A),
+    onSecondaryContainer = VeniceTangerine,
+    tertiary = VenicePhosphor,
     background = VeniceObsidian,
     onBackground = TextPrimary,
     surface = VeniceSurface,
@@ -113,7 +113,7 @@ fun rememberFuturisticGradientBrush(durationMillis: Int = 4500): Brush {
         label = "gradient_offset"
     )
     return Brush.linearGradient(
-        colors = listOf(VeniceCyan, VeniceViolet, VeniceMagenta, VeniceCyan),
+        colors = listOf(VeniceCyan, VenicePhosphor, VeniceTangerine, VeniceCyan),
         start = Offset(offset - 600f, 0f),
         end = Offset(offset + 600f, 400f)
     )
