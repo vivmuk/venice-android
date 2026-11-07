@@ -56,6 +56,12 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/kotlin-project-structure-metadata.json"
+            excludes += "META-INF/kotlin-project-structure-metadata.json"
+            excludes += "commonMain/**"
+            excludes += "/commonMain/**"
+            excludes += "nonJvmMain/**"
+            excludes += "/nonJvmMain/**"
         }
     }
 }
@@ -97,6 +103,10 @@ dependencies {
 
     // Coil for Image loading
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Android Auto Car App Library (androidx.car.app:car-app:1.7.0)
+    implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.car.app:app-projected:1.7.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
