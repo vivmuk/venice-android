@@ -5,6 +5,8 @@ import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -51,42 +53,71 @@ class VeniceApiClient(
         return key
     }
 
+    /**
+     * Raw /models?type=X JSON, from a disk cache when fresh (6h TTL), else the network.
+     * On a network failure a stale cached copy is returned instead of failing, so the
+     * pickers keep working offline with the last-known catalog. The catalog is public
+     * (no key needed) but the key is attached when present for account-gated entries.
+     */
+    private suspend fun getCatalogJson(type: String): String = withContext(Dispatchers.IO) {
+        val cacheFile = File(cacheDir, "catalog-$type.json")
+        val freshCached = runCatching {
+            if (cacheFile.exists() &&
+                System.currentTimeMillis() - cacheFile.lastModified() < CATALOG_CACHE_TTL_MS
+            ) {
+                cacheFile.readText().takeIf { it.isNotBlank() }
+            } else null
+        }.getOrNull()
+        if (freshCached != null) return@withContext freshCached
+
+        val staleCached = runCatching {
+            if (cacheFile.exists()) cacheFile.readText().takeIf { it.isNotBlank() } else null
+        }.getOrNull()
+
+        try {
+            val key = securePreferences.getApiKey()
+            val builder = Request.Builder()
+                .url("$BASE_URL/models?type=$type")
+                .header("Accept", "application/json")
+                .get()
+            if (key.isNotBlank()) builder.header("Authorization", "Bearer $key")
+            okHttpClient.newCall(builder.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body?.string()?.take(300) ?: "HTTP ${response.code}"
+                    throw IOException("Failed to load $type models (${response.code}): $errBody")
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                runCatching { cacheFile.writeText(bodyStr) }
+                bodyStr
+            }
+        } catch (e: Exception) {
+            // Network down: serve the stale catalog rather than failing the pickers.
+            staleCached ?: throw e
+        }
+    }
+
     suspend fun fetchTextModels(): Result<List<VeniceModel>> = withContext(Dispatchers.IO) {
         runCatching {
             // The Venice /models catalog is public: it answers 200 without an API key,
             // so the full catalog loads even before the user enters a key. The key is
             // attached when present (some catalog entries are account-gated).
-            val key = securePreferences.getApiKey()
-            val fetchedModels = run {
-                val builder = Request.Builder()
-                    .url("$BASE_URL/models?type=text")
-                    .header("Accept", "application/json")
-                    .get()
-                if (key.isNotBlank()) builder.header("Authorization", "Bearer $key")
-                val request = builder.build()
-
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        val errBody = response.body?.string()?.take(300) ?: "HTTP ${response.code}"
-                        throw IOException("Failed to load text models (${response.code}): $errBody")
-                    }
-                    val bodyStr = response.body?.string() ?: "{}"
-                    val parsed = json.decodeFromString<ModelsResponse>(bodyStr)
-                    parsed.data.map { dto ->
-                        VeniceModel(
-                            id = dto.id,
-                            displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
-                            description = dto.modelSpec?.description ?: "",
-                            isPinned = dto.id in SecurePreferences.PINNED_TEXT_MODELS,
-                            type = "text",
-                            supportsReasoning = dto.modelSpec?.capabilities?.supportsReasoning == true ||
-                                dto.id.contains("deepseek", ignoreCase = true) ||
-                                dto.id.contains("r1", ignoreCase = true) ||
-                                dto.id.contains("qwq", ignoreCase = true),
-                            supportsWebSearch = dto.modelSpec?.capabilities?.supportsWebSearch ?: true
-                        )
-                    }
-                }
+            // The response is cached on disk for 6h (see getCatalogJson) so the app
+            // opens with models instantly instead of refetching on every launch.
+            val bodyStr = getCatalogJson("text")
+            val parsed = json.decodeFromString<ModelsResponse>(bodyStr)
+            val fetchedModels = parsed.data.map { dto ->
+                VeniceModel(
+                    id = dto.id,
+                    displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
+                    description = dto.modelSpec?.description ?: "",
+                    isPinned = dto.id in SecurePreferences.PINNED_TEXT_MODELS,
+                    type = "text",
+                    supportsReasoning = dto.modelSpec?.capabilities?.supportsReasoning == true ||
+                        dto.id.contains("deepseek", ignoreCase = true) ||
+                        dto.id.contains("r1", ignoreCase = true) ||
+                        dto.id.contains("qwq", ignoreCase = true),
+                    supportsWebSearch = dto.modelSpec?.capabilities?.supportsWebSearch ?: true
+                )
             }
 
             mergeWithPinnedTextModels(fetchedModels)
@@ -123,32 +154,16 @@ class VeniceApiClient(
     suspend fun fetchImageModels(): Result<List<VeniceModel>> = withContext(Dispatchers.IO) {
         runCatching {
             // Public catalog: loads without an API key (see fetchTextModels).
-            val key = securePreferences.getApiKey()
-            val fetched = run {
-                val builder = Request.Builder()
-                    .url("$BASE_URL/models?type=image")
-                    .header("Accept", "application/json")
-                    .get()
-                if (key.isNotBlank()) builder.header("Authorization", "Bearer $key")
-                val request = builder.build()
-
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        val errBody = response.body?.string()?.take(300) ?: "HTTP ${response.code}"
-                        throw IOException("Failed to load image models (${response.code}): $errBody")
-                    }
-                    val bodyStr = response.body?.string() ?: "{}"
-                    val parsed = json.decodeFromString<ModelsResponse>(bodyStr)
-                    parsed.data.map { dto ->
-                        VeniceModel(
-                            id = dto.id,
-                            displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
-                            description = dto.modelSpec?.description ?: "Venice image generation model",
-                            isPinned = false,
-                            type = "image"
-                        )
-                    }
-                }
+            val bodyStr = getCatalogJson("image")
+            val parsed = json.decodeFromString<ModelsResponse>(bodyStr)
+            val fetched = parsed.data.map { dto ->
+                VeniceModel(
+                    id = dto.id,
+                    displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
+                    description = dto.modelSpec?.description ?: "Venice image generation model",
+                    isPinned = false,
+                    type = "image"
+                )
             }
 
             if (fetched.isEmpty()) {
@@ -162,60 +177,38 @@ class VeniceApiClient(
     /** All Venice text-to-speech models (GET /models?type=tts). Public catalog. */
     suspend fun fetchTtsModels(): Result<List<VeniceModel>> = withContext(Dispatchers.IO) {
         runCatching {
-            val key = securePreferences.getApiKey()
-            val builder = Request.Builder()
-                .url("$BASE_URL/models?type=tts")
-                .header("Accept", "application/json")
-                .get()
-            if (key.isNotBlank()) builder.header("Authorization", "Bearer $key")
-
-            okHttpClient.newCall(builder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errBody = response.body?.string()?.take(300) ?: "HTTP ${response.code}"
-                    throw IOException("Failed to load TTS models (${response.code}): $errBody")
-                }
-                val parsed = json.decodeFromString<ModelsResponse>(response.body?.string() ?: "{}")
-                val fetched = parsed.data.map { dto ->
-                    VeniceModel(
-                        id = dto.id,
-                        displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
-                        description = dto.modelSpec?.description ?: "Venice text-to-speech model",
-                        isPinned = false,
-                        type = "tts"
-                    )
-                }.sortedBy { it.displayName.lowercase() }
-                if (fetched.isEmpty()) FALLBACK_TTS_MODELS else fetched
-            }
+            val bodyStr = getCatalogJson("tts")
+            val parsed = json.decodeFromString<ModelsResponse>(bodyStr)
+            val fetched = parsed.data.map { dto ->
+                VeniceModel(
+                    id = dto.id,
+                    displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
+                    description = dto.modelSpec?.description ?: "Venice text-to-speech model",
+                    isPinned = false,
+                    type = "tts",
+                    // model_spec.voices is the authoritative voice list for this model.
+                    voices = dto.modelSpec?.voices ?: emptyList()
+                )
+            }.sortedBy { it.displayName.lowercase() }
+            if (fetched.isEmpty()) FALLBACK_TTS_MODELS else fetched
         }
     }
 
     /** All Venice speech-recognition models (GET /models?type=asr). Public catalog. */
     suspend fun fetchAsrModels(): Result<List<VeniceModel>> = withContext(Dispatchers.IO) {
         runCatching {
-            val key = securePreferences.getApiKey()
-            val builder = Request.Builder()
-                .url("$BASE_URL/models?type=asr")
-                .header("Accept", "application/json")
-                .get()
-            if (key.isNotBlank()) builder.header("Authorization", "Bearer $key")
-
-            okHttpClient.newCall(builder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errBody = response.body?.string()?.take(300) ?: "HTTP ${response.code}"
-                    throw IOException("Failed to load speech-recognition models (${response.code}): $errBody")
-                }
-                val parsed = json.decodeFromString<ModelsResponse>(response.body?.string() ?: "{}")
-                val fetched = parsed.data.map { dto ->
-                    VeniceModel(
-                        id = dto.id,
-                        displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
-                        description = dto.modelSpec?.description ?: "Venice speech-recognition model",
-                        isPinned = false,
-                        type = "asr"
-                    )
-                }.sortedBy { it.displayName.lowercase() }
-                if (fetched.isEmpty()) FALLBACK_ASR_MODELS else fetched
-            }
+            val bodyStr = getCatalogJson("asr")
+            val parsed = json.decodeFromString<ModelsResponse>(bodyStr)
+            val fetched = parsed.data.map { dto ->
+                VeniceModel(
+                    id = dto.id,
+                    displayName = dto.modelSpec?.name?.takeIf { it.isNotBlank() } ?: formatModelName(dto.id),
+                    description = dto.modelSpec?.description ?: "Venice speech-recognition model",
+                    isPinned = false,
+                    type = "asr"
+                )
+            }.sortedBy { it.displayName.lowercase() }
+            if (fetched.isEmpty()) FALLBACK_ASR_MODELS else fetched
         }
     }
 
@@ -434,7 +427,7 @@ class VeniceApiClient(
         runCatching {
             val apiKey = requireApiKey()
             val mediaType = "audio/mp4".toMediaType()
-            val multipartBody = MultipartBody.Builder()
+            val multipartBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart(
                     "file",
@@ -443,7 +436,11 @@ class VeniceApiClient(
                 )
                 .addFormDataPart("model", model)
                 .addFormDataPart("response_format", "json")
-                .build()
+            // Whisper-family models honor an ISO 639-1 language hint; others ignore it.
+            if (model.contains("whisper", ignoreCase = true)) {
+                multipartBuilder.addFormDataPart("language", "en")
+            }
+            val multipartBody = multipartBuilder.build()
 
             val request = Request.Builder()
                 .url("$BASE_URL/audio/transcriptions")
@@ -512,8 +509,103 @@ class VeniceApiClient(
         }
     }
 
+    /**
+     * Streaming TTS: POST /audio/speech with streaming=true and response_format=pcm.
+     * The HTTP body is a chunked stream of 24kHz signed-16 little-endian PCM; each chunk
+     * is delivered to [onPcmChunk] as it arrives, so playback can start within a few
+     * hundred ms instead of waiting for the whole MP3 file. Cancel the calling coroutine
+     * to stop the stream (the OkHttp call is cancelled with it).
+     */
+    suspend fun synthesizeSpeechStream(
+        text: String,
+        voice: String,
+        model: String,
+        onPcmChunk: (ByteArray) -> Unit
+    ): Result<Unit> {
+        val apiKey = try {
+            requireApiKey()
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+        val cleanedText = text
+            .replace(Regex("```[\\s\\S]*?```"), " [code block] ")
+            .replace(Regex("[*_#>`~]"), "")
+            .trim()
+            .take(4000)
+
+        val payload = AudioSpeechRequest(
+            model = model,
+            input = cleanedText.ifEmpty { "Empty message" },
+            voice = voice,
+            responseFormat = "pcm",
+            speed = 1.0f,
+            streaming = true
+        )
+        val body = json.encodeToString(payload)
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url("$BASE_URL/audio/speech")
+            .header("Authorization", "Bearer $apiKey")
+            .post(body)
+            .build()
+
+        // OkHttp async + suspendCancellableCoroutine: cancelling the coroutine cancels
+        // the HTTP call, and the response body is read (and delivered) as it streams.
+        return try {
+            suspendCancellableCoroutine<Unit> { cont ->
+                val call = okHttpClient.newCall(request)
+                cont.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (cont.isActive) cont.resumeWithException(e)
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use { resp ->
+                            if (!resp.isSuccessful) {
+                                val err = resp.body?.string()?.take(300) ?: "HTTP ${resp.code}"
+                                if (cont.isActive) {
+                                    cont.resumeWithException(
+                                        IOException("Speech synthesis failed (${resp.code}): $err")
+                                    )
+                                }
+                                return
+                            }
+                            val stream = resp.body?.byteStream()
+                            if (stream == null) {
+                                if (cont.isActive) {
+                                    cont.resumeWithException(
+                                        IOException("Empty audio stream from /audio/speech")
+                                    )
+                                }
+                                return
+                            }
+                            try {
+                                val buf = ByteArray(8192)
+                                while (cont.isActive) {
+                                    val n = stream.read(buf)
+                                    if (n <= 0) break
+                                    onPcmChunk(buf.copyOf(n))
+                                }
+                                if (cont.isActive) cont.resumeWith(Result.success(Unit))
+                            } catch (e: Exception) {
+                                if (cont.isActive) cont.resumeWithException(e)
+                            }
+                        }
+                    }
+                })
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     companion object {
         const val BASE_URL = "https://api.venice.ai/api/v1"
+
+        /** Model catalog disk-cache TTL: the catalog changes rarely, so 6h is plenty. */
+        const val CATALOG_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
 
         val FALLBACK_IMAGE_MODELS = listOf(
             VeniceModel("fluently-xl", "Fluently XL", "Fast, photorealistic image generation", type = "image"),
@@ -538,6 +630,58 @@ class VeniceApiClient(
             VeniceModel("nvidia/parakeet-tdt-0.6b-v3", "Parakeet TDT 0.6B v3", "NVIDIA fast speech recognition", type = "asr"),
             VeniceModel("elevenlabs/scribe-v2", "ElevenLabs Scribe v2", "ElevenLabs speech recognition", type = "asr")
         )
+
+        /**
+         * Fallback voice IDs per TTS model family (from Venice's voice docs). Used only
+         * when the live catalog has no voices entry for a model. Voices are
+         * model-specific — sending a Kokoro voice ID to xAI (or vice versa) is a 400.
+         */
+        val FALLBACK_VOICES_BY_MODEL: Map<String, List<String>> = mapOf(
+            "tts-kokoro" to listOf(
+                "af_sky", "af_bella", "af_heart", "af_sarah", "af_alloy", "af_aoede",
+                "am_adam", "am_michael", "bf_emma", "bf_isabella", "bm_george"
+            ),
+            "tts-xai-v1" to listOf(
+                "eve", "ara", "rex", "sal", "leo", "altair", "atlas", "carina",
+                "castor", "celeste", "cosmo", "helios", "iris", "luna", "orion", "sirius", "zenith"
+            ),
+            "tts-qwen3-0-6b" to listOf(
+                "Vivian", "Serena", "Ono_Anna", "Sohee", "Uncle_Fu", "Dylan", "Eric", "Ryan", "Aiden"
+            ),
+            "tts-qwen3-1-7b" to listOf(
+                "Vivian", "Serena", "Ono_Anna", "Sohee", "Uncle_Fu", "Dylan", "Eric", "Ryan", "Aiden"
+            ),
+            "tts-orpheus" to listOf("tara", "leah", "jess", "mia", "zoe", "dan", "zac"),
+            "tts-inworld-1-5-max" to listOf(
+                "Craig", "Ashley", "Olivia", "Sarah", "Elizabeth", "Priya", "Alex", "Edward"
+            ),
+            "tts-chatterbox-hd" to listOf(
+                "Aurora", "Britney", "Siobhan", "Vicky", "Blade", "Carl", "Cliff", "Richard", "Rico"
+            ),
+            "tts-elevenlabs-turbo-v2-5" to listOf(
+                "Rachel", "Aria", "Laura", "Charlotte", "Alice", "Roger", "Charlie",
+                "George", "Callum", "River", "Liam", "Brian", "Daniel"
+            ),
+            "tts-minimax-speech-02-hd" to listOf(
+                "WiseWoman", "FriendlyPerson", "CalmWoman", "DeepVoiceMan", "CasualGuy",
+                "PatientMan", "ElegantMan"
+            ),
+            "tts-gemini-3-1-flash" to listOf(
+                "Zephyr", "Achernar", "Aoede", "Charon", "Despina", "Kore", "Leda", "Puck"
+            ),
+            "tts-gradium-v1" to listOf("Emma", "Kent", "Eva", "Jack")
+        )
+
+        /**
+         * Voice IDs valid for [modelId]: the live catalog's model_spec.voices when
+         * present, else the documented fallback family list. Empty when unknown —
+         * callers then offer a free-form voice ID field instead of guessing.
+         */
+        fun voicesForTtsModel(ttsModels: List<VeniceModel>, modelId: String): List<String> {
+            val fromCatalog = ttsModels.firstOrNull { it.id == modelId }?.voices.orEmpty()
+            if (fromCatalog.isNotEmpty()) return fromCatalog
+            return FALLBACK_VOICES_BY_MODEL[modelId].orEmpty()
+        }
 
         fun formatModelName(id: String): String {
             return when (id) {

@@ -22,6 +22,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +52,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,14 +69,23 @@ import androidx.compose.ui.window.DialogProperties
 
 /**
  * Full-screen voice-to-voice conversation: speak -> transcribe -> chat -> speak the reply,
- * then back to listening until the user ends it.
+ * then back to listening until the user ends it. The Pipeline panel lets the user pick
+ * every model in the call (chat, TTS, voice, ASR) without leaving the call; changes
+ * take effect on the next turn.
  */
 @Composable
 fun VoiceConversationOverlay(
     uiState: ChatUiState,
     onFinishTurn: () -> Unit,
-    onEnd: () -> Unit
+    onEnd: () -> Unit,
+    onSelectTextModel: (String) -> Unit,
+    onSelectTtsModel: (String) -> Unit,
+    onSelectVoice: (String) -> Unit,
+    onSelectAsrModel: (String) -> Unit
 ) {
+    var showPipeline by remember { mutableStateOf(false) }
+    // Voices valid for the currently selected TTS model (live catalog, else documented fallback).
+    val voices = VeniceApiClient.voicesForTtsModel(uiState.ttsModels, uiState.selectedTtsModel)
     val phase = uiState.voicePhase
     val phaseColor: Color = when (phase) {
         VoicePhase.LISTENING -> VeniceCyan
@@ -135,7 +150,71 @@ fun VoiceConversationOverlay(
                     color = TextMuted
                 )
 
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Pipeline picker: every model in the call, changeable mid-call.
+                OutlinedButton(
+                    onClick = { showPipeline = !showPipeline },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = VeniceCyan)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (showPipeline) "Hide pipeline" else "Pipeline: pick models",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (showPipeline) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(VeniceSurfaceElevated)
+                            .border(1.dp, VeniceBorder, RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        PipelineRow(
+                            label = "Chat model",
+                            options = uiState.textModels.map { it.id to it.displayName },
+                            selected = uiState.selectedTextModel,
+                            onSelect = onSelectTextModel
+                        )
+                        PipelineRow(
+                            label = "Voice model (TTS)",
+                            options = uiState.ttsModels.map { it.id to it.displayName },
+                            selected = uiState.selectedTtsModel,
+                            onSelect = onSelectTtsModel
+                        )
+                        PipelineRow(
+                            label = "Voice",
+                            options = voices.map { it to it },
+                            selected = uiState.selectedVoice,
+                            onSelect = onSelectVoice
+                        )
+                        PipelineRow(
+                            label = "Listen model (ASR)",
+                            options = uiState.asrModels.map { it.id to it.displayName },
+                            selected = uiState.selectedAsrModel,
+                            onSelect = onSelectAsrModel
+                        )
+                        Text(
+                            text = "Changes apply on the next turn. Voices are model-specific — picking a new voice model switches the voice to one that works with it.",
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // Pulsing orb
                 Box(
@@ -273,6 +352,61 @@ fun VoiceConversationOverlay(
                         Text(text = "End voice chat", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** One horizontally scrolling chip row inside the Pipeline panel. */
+@Composable
+private fun PipelineRow(
+    label: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = TextSecondary
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEach { (id, displayName) ->
+                val isSelected = id == selected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) VeniceCyan.copy(alpha = 0.18f) else VeniceObsidian)
+                        .border(
+                            1.dp,
+                            if (isSelected) VeniceCyan else VeniceBorder,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable { onSelect(id) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = displayName,
+                        fontSize = 12.sp,
+                        color = if (isSelected) VeniceCyan else TextSecondary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            if (options.isEmpty()) {
+                Text(
+                    text = "Loading…",
+                    fontSize = 12.sp,
+                    color = TextMuted
+                )
             }
         }
     }

@@ -263,7 +263,10 @@ fun VeniceAppRoot(viewModel: VeniceViewModel) {
                                 onShowStatus = { viewModel.showStatus(it) },
                                 onStartVoice = { viewModel.startVoiceConversation() },
                                 onFinishVoiceTurn = { viewModel.finishVoiceTurn() },
-                                onEndVoice = { viewModel.stopVoiceConversation() }
+                                onEndVoice = { viewModel.stopVoiceConversation() },
+                                onSelectTtsModel = { viewModel.setSelectedTtsModel(it) },
+                                onSelectVoice = { viewModel.setSelectedVoice(it) },
+                                onSelectAsrModel = { viewModel.setSelectedAsrModel(it) }
                             )
                         }
                         AppSection.IMAGINE -> {
@@ -290,6 +293,7 @@ fun VeniceAppRoot(viewModel: VeniceViewModel) {
                                 onSelectDefaultTextModel = { viewModel.setSelectedTextModel(it) },
                                 onSelectDefaultImageModel = { viewModel.setSelectedImageModel(it) },
                                 onSelectDefaultTtsModel = { viewModel.setSelectedTtsModel(it) },
+                                onSelectDefaultVoice = { viewModel.setSelectedVoice(it) },
                                 onSelectDefaultAsrModel = { viewModel.setSelectedAsrModel(it) }
                             )
                         }

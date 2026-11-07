@@ -130,7 +130,10 @@ fun ChatScreen(
     onShowStatus: (String) -> Unit,
     onStartVoice: () -> Unit,
     onFinishVoiceTurn: () -> Unit,
-    onEndVoice: () -> Unit
+    onEndVoice: () -> Unit,
+    onSelectTtsModel: (String) -> Unit,
+    onSelectVoice: (String) -> Unit,
+    onSelectAsrModel: (String) -> Unit
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -577,7 +580,11 @@ fun ChatScreen(
         VoiceConversationOverlay(
             uiState = uiState,
             onFinishTurn = onFinishVoiceTurn,
-            onEnd = onEndVoice
+            onEnd = onEndVoice,
+            onSelectTextModel = onSelectModel,
+            onSelectTtsModel = onSelectTtsModel,
+            onSelectVoice = onSelectVoice,
+            onSelectAsrModel = onSelectAsrModel
         )
     }
 }

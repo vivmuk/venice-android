@@ -158,4 +158,21 @@ class VeniceRepository(
             model = prefs.getDefaultTtsModel()
         )
     }
+
+    /**
+     * Streaming TTS for the voice loop: reads the current TTS model + voice from prefs
+     * at call time (so an in-call model/voice change takes effect on the next sentence)
+     * and delivers 24kHz PCM chunks to [onPcmChunk] as they arrive.
+     */
+    suspend fun synthesizeSpeechStream(
+        text: String,
+        onPcmChunk: (ByteArray) -> Unit
+    ): Result<Unit> {
+        return apiClient.synthesizeSpeechStream(
+            text = text,
+            voice = prefs.getDefaultVoice(),
+            model = prefs.getDefaultTtsModel(),
+            onPcmChunk = onPcmChunk
+        )
+    }
 }

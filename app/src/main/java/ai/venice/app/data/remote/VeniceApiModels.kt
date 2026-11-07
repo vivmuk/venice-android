@@ -22,7 +22,9 @@ data class ModelSpecDto(
     val name: String? = null,
     val description: String? = null,
     val capabilities: ModelCapabilitiesDto? = null,
-    val traits: List<String>? = null
+    val traits: List<String>? = null,
+    /** Authoritative voice IDs for TTS models (model_spec.voices on /models?type=tts). */
+    val voices: List<String> = emptyList()
 )
 
 @Serializable
@@ -39,7 +41,9 @@ data class VeniceModel(
     val isPinned: Boolean = false,
     val type: String = "text",
     val supportsReasoning: Boolean = false,
-    val supportsWebSearch: Boolean = true
+    val supportsWebSearch: Boolean = true,
+    /** Voice IDs valid for this model (TTS only; from model_spec.voices). */
+    val voices: List<String> = emptyList()
 )
 
 @Serializable
@@ -185,7 +189,9 @@ data class AudioSpeechRequest(
     val voice: String = "af_sky",
     @SerialName("response_format")
     val responseFormat: String = "mp3",
-    val speed: Float = 1.0f
+    val speed: Float = 1.0f,
+    /** true -> chunked audio stream (decode as it arrives); pairs with response_format pcm. */
+    val streaming: Boolean = false
 )
 
 @Serializable

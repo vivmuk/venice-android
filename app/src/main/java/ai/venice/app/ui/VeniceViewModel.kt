@@ -17,6 +17,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,10 +32,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import java.util.UUID
-import kotlin.coroutines.resume
 
 enum class AppSection {
     CHAT,
@@ -61,6 +62,8 @@ data class ChatUiState(
     val selectedImageSize: String = "1024x1024",
     val ttsModels: List<VeniceModel> = VeniceApiClient.FALLBACK_TTS_MODELS,
     val selectedTtsModel: String = SecurePreferences.DEFAULT_TTS_MODEL,
+    /** Voice ID for the selected TTS model (model-specific; see voicesForTtsModel). */
+    val selectedVoice: String = SecurePreferences.DEFAULT_VOICE,
     val asrModels: List<VeniceModel> = VeniceApiClient.FALLBACK_ASR_MODELS,
     val selectedAsrModel: String = SecurePreferences.DEFAULT_ASR_MODEL,
     val isLoadingModels: Boolean = false,
@@ -94,6 +97,7 @@ class VeniceViewModel(
             webSearchEnabled = prefs.getDefaultWebSearch(),
             selectedImageModel = prefs.getDefaultImageModel(),
             selectedTtsModel = prefs.getDefaultTtsModel(),
+            selectedVoice = prefs.getDefaultVoice(),
             selectedAsrModel = prefs.getDefaultAsrModel(),
             textModels = repository.apiClient.getDefaultTextModelCatalog()
         )
@@ -146,13 +150,25 @@ class VeniceViewModel(
         _uiState.update { it.copy(statusBanner = message) }
     }
 
+    /**
+     * Loads all four model catalogs in parallel (was four sequential network calls)
+     * and applies them together. The client caches each catalog on disk for 6h, so
+     * repeat launches are instant. After the TTS catalog lands, the voice is
+     * auto-switched if the stored voice is not valid for the selected TTS model
+     * (a wrong voice/model combo is a 400 from Venice).
+     */
     fun refreshCatalogs() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingModels = true) }
-            repository.fetchTextModels().onSuccess { models ->
+            val textDeferred = async { repository.fetchTextModels() }
+            val imageDeferred = async { repository.fetchImageModels() }
+            val ttsDeferred = async { repository.fetchTtsModels() }
+            val asrDeferred = async { repository.fetchAsrModels() }
+
+            textDeferred.await().onSuccess { models ->
                 _uiState.update { it.copy(textModels = models) }
             }
-            repository.fetchImageModels().onSuccess { imgModels ->
+            imageDeferred.await().onSuccess { imgModels ->
                 _uiState.update { state ->
                     val chosen = if (imgModels.any { it.id == state.selectedImageModel }) {
                         state.selectedImageModel
@@ -162,17 +178,23 @@ class VeniceViewModel(
                     state.copy(imageModels = imgModels, selectedImageModel = chosen)
                 }
             }
-            repository.fetchTtsModels().onSuccess { ttsModels ->
+            ttsDeferred.await().onSuccess { ttsModels ->
                 _uiState.update { state ->
                     val chosen = if (ttsModels.any { it.id == state.selectedTtsModel }) {
                         state.selectedTtsModel
                     } else {
                         ttsModels.firstOrNull()?.id ?: state.selectedTtsModel
                     }
-                    state.copy(ttsModels = ttsModels, selectedTtsModel = chosen)
+                    val validVoices = VeniceApiClient.voicesForTtsModel(ttsModels, chosen)
+                    val voice = if (validVoices.isEmpty() || state.selectedVoice in validVoices) {
+                        state.selectedVoice
+                    } else {
+                        validVoices.first().also { prefs.setDefaultVoice(it) }
+                    }
+                    state.copy(ttsModels = ttsModels, selectedTtsModel = chosen, selectedVoice = voice)
                 }
             }
-            repository.fetchAsrModels().onSuccess { asrModels ->
+            asrDeferred.await().onSuccess { asrModels ->
                 _uiState.update { state ->
                     val chosen = if (asrModels.any { it.id == state.selectedAsrModel }) {
                         state.selectedAsrModel
@@ -188,7 +210,22 @@ class VeniceViewModel(
 
     fun setSelectedTtsModel(modelId: String) {
         prefs.setDefaultTtsModel(modelId)
-        _uiState.update { it.copy(selectedTtsModel = modelId) }
+        _uiState.update { state ->
+            // Voices are model-specific: if the current voice is not valid for the new
+            // model, switch to that model's first voice (else /audio/speech 400s).
+            val validVoices = VeniceApiClient.voicesForTtsModel(state.ttsModels, modelId)
+            val voice = if (validVoices.isEmpty() || state.selectedVoice in validVoices) {
+                state.selectedVoice
+            } else {
+                validVoices.first().also { prefs.setDefaultVoice(it) }
+            }
+            state.copy(selectedTtsModel = modelId, selectedVoice = voice)
+        }
+    }
+
+    fun setSelectedVoice(voiceId: String) {
+        prefs.setDefaultVoice(voiceId)
+        _uiState.update { it.copy(selectedVoice = voiceId) }
     }
 
     fun setSelectedAsrModel(modelId: String) {
@@ -359,8 +396,13 @@ class VeniceViewModel(
     /**
      * Streams one assistant reply for [conversationId], saves it (with token/cost stats),
      * and returns the reply text plus any stream error. Shared by text chat and voice mode.
+     * [onSentence] is invoked for each complete sentence as it streams in, so the voice
+     * loop can start speaking the reply before the full response has arrived.
      */
-    private suspend fun runAssistantStream(conversationId: String): Pair<String, String?> {
+    private suspend fun runAssistantStream(
+        conversationId: String,
+        onSentence: ((String) -> Unit)? = null
+    ): Pair<String, String?> {
         val state = _uiState.value
         val history = repository.getMessages(conversationId)
 
@@ -368,6 +410,22 @@ class VeniceViewModel(
         val reasoningBuilder = StringBuilder()
         var errorMessage: String? = null
         var usageStats: StreamEvent.Usage? = null
+        // Sentence splitter: accumulate streamed text; emit each complete sentence.
+        val sentenceBuffer = StringBuilder()
+        fun flushSentence(force: Boolean = false) {
+            val text = sentenceBuffer.toString()
+            if (text.isBlank()) return
+            val endIdx = findSentenceEnd(text)
+            if (endIdx > 0) {
+                val sentence = text.substring(0, endIdx).trim()
+                sentenceBuffer.delete(0, endIdx)
+                if (sentence.isNotBlank()) onSentence?.invoke(sentence)
+            } else if (force) {
+                val sentence = text.trim()
+                sentenceBuffer.clear()
+                if (sentence.isNotBlank()) onSentence?.invoke(sentence)
+            }
+        }
 
         repository.streamChat(
             model = state.selectedTextModel,
@@ -380,6 +438,10 @@ class VeniceViewModel(
                 is StreamEvent.Delta -> {
                     if (event.content.isNotEmpty()) {
                         contentBuilder.append(event.content)
+                        if (onSentence != null) {
+                            sentenceBuffer.append(event.content)
+                            flushSentence()
+                        }
                     }
                     if (event.reasoning.isNotEmpty()) {
                         reasoningBuilder.append(event.reasoning)
@@ -402,6 +464,8 @@ class VeniceViewModel(
                 }
             }
         }
+        // Emit whatever is left of the reply as a final sentence.
+        flushSentence(force = true)
 
         val finalContent = contentBuilder.toString().trim()
         val finalReasoning = reasoningBuilder.toString().trim()
@@ -427,14 +491,31 @@ class VeniceViewModel(
         return finalContent to errorMessage
     }
 
-    // ---- Voice-to-voice conversation mode ----
-    // Loop: listen (mic) -> transcribe (ASR) -> chat (text model) -> speak reply (TTS)
-    // -> back to listening, until the user ends it.
+    // ---- Voice-to-voice conversation mode (real-time) ----
+    // Loop: live capture (mic, chunked) -> transcribe chunks as they arrive (the
+    // transcript appears live) -> streaming chat (sentence by sentence) -> streaming
+    // TTS (PCM playback starts as the first sentence's audio arrives) -> listening.
+    // Barge-in: if the user speaks while the reply is playing, playback stops and
+    // their speech becomes the next turn.
 
     private var voiceJob: Job? = null
 
     @Volatile
     private var finishTurnRequested = false
+
+    /** Set by the barge-in monitor when the user talks over the reply. */
+    @Volatile
+    private var bargeInRequested = false
+
+    /** The PCM player for the reply currently being spoken (for instant stop). */
+    @Volatile
+    private var activePcmPlayer: VoiceController.StreamingPcmPlayer? = null
+
+    // Live-transcription bookkeeping for the current turn (chunk index -> text).
+    private val liveChunkTranscripts = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    private val liveChunkNextIndex = java.util.concurrent.atomic.AtomicInteger(0)
+    private val liveChunkPending = java.util.concurrent.atomic.AtomicInteger(0)
+    private val liveChunkChannel = Channel<File>(Channel.UNLIMITED)
 
     fun startVoiceConversation() {
         if (_uiState.value.isVoiceMode) return
@@ -454,7 +535,9 @@ class VeniceViewModel(
             try {
                 runVoiceLoop()
             } finally {
-                voiceController.stopRecording()
+                activePcmPlayer?.stopNow()
+                activePcmPlayer = null
+                voiceController.stopLiveCapture()
                 voiceController.stopPlayback()
                 _uiState.update { it.copy(isVoiceMode = false, voicePhase = VoicePhase.IDLE) }
             }
@@ -465,8 +548,11 @@ class VeniceViewModel(
         voiceJob?.cancel()
         voiceJob = null
         finishTurnRequested = false
+        bargeInRequested = false
+        activePcmPlayer?.stopNow()
+        activePcmPlayer = null
+        voiceController.stopLiveCapture()
         voiceController.stopPlayback()
-        voiceController.stopRecording()
         _uiState.update { it.copy(isVoiceMode = false, voicePhase = VoicePhase.IDLE) }
     }
 
@@ -475,63 +561,183 @@ class VeniceViewModel(
         finishTurnRequested = true
     }
 
-    private suspend fun runVoiceLoop() {
-        while (currentCoroutineContext().isActive) {
-            // --- LISTENING ---
-            _uiState.update { it.copy(voicePhase = VoicePhase.LISTENING) }
-            val started = voiceController.startRecording()
-            if (started.isFailure) {
-                showStatus("Could not start the microphone.")
-                return
+    /** Index just past the first complete sentence in [text], or -1 if none is complete. */
+    private fun findSentenceEnd(text: String): Int {
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            if (c == '.' || c == '!' || c == '?') {
+                val prevIsDigit = i > 0 && text[i - 1].isDigit()
+                val nextIsBoundary = i + 1 >= text.length || text[i + 1].isWhitespace()
+                if (!prevIsDigit && nextIsBoundary) return i + 1
+            } else if (c == '\n') {
+                return i + 1
             }
-            val recordedFile = awaitVoiceTurnEnd()
-            if (recordedFile == null) continue
+            i++
+        }
+        return -1
+    }
 
-            // --- TRANSCRIBING ---
-            _uiState.update { it.copy(voicePhase = VoicePhase.TRANSCRIBING) }
-            val heard = repository.transcribeAudio(recordedFile)
-                .getOrElse { "" }
-                .trim()
-            runCatching { recordedFile.delete() }
-            if (heard.isBlank()) continue
-            _uiState.update { it.copy(voiceHeardText = heard) }
+    private suspend fun runVoiceLoop() = coroutineScope {
+        // Continuous live capture for the whole session; chunks flow through the channel.
+        val captureStarted = voiceController.startLiveCapture(
+            chunkDurationMs = VoiceController.LIVE_CHUNK_MS,
+            onChunk = { file -> liveChunkChannel.trySend(file) }
+        )
+        if (captureStarted.isFailure) {
+            showStatus("Could not start the microphone.")
+            return@coroutineScope
+        }
 
-            // --- THINKING (chat) ---
-            _uiState.update { it.copy(voicePhase = VoicePhase.THINKING) }
-            val convId = ensureVoiceConversation(heard)
-            val userMsg = MessageEntity(
-                id = UUID.randomUUID().toString(),
-                conversationId = convId,
-                role = "user",
-                content = heard,
-                modelId = _uiState.value.selectedTextModel
-            )
-            repository.insertMessage(userMsg)
-            val (reply, errorMessage) = runAssistantStream(convId)
-            if (reply.isBlank()) {
-                if (errorMessage != null) showStatus(errorMessage)
-                continue
-            }
-            _uiState.update { it.copy(voiceReplyText = reply) }
-
-            // --- SPEAKING (TTS) ---
-            _uiState.update { it.copy(voicePhase = VoicePhase.SPEAKING) }
-            val audio = repository.synthesizeSpeech(reply)
-            audio.onSuccess { audioFile ->
-                try {
-                    playAudioAndAwait(audioFile, "voice-${System.currentTimeMillis()}")
-                } finally {
-                    runCatching { audioFile.delete() }
+        // Consumer: transcribes live chunks in order and updates the on-screen transcript.
+        val chunkConsumer = launch {
+            for (file in liveChunkChannel) {
+                if (_uiState.value.voicePhase != VoicePhase.LISTENING) {
+                    runCatching { file.delete() }
+                    continue
                 }
-            }.onFailure { err ->
-                showStatus(err.message ?: "Speech synthesis failed")
+                val index = liveChunkNextIndex.getAndIncrement()
+                liveChunkPending.incrementAndGet()
+                repository.transcribeAudio(file)
+                    .onSuccess { text ->
+                        if (text.isNotBlank()) {
+                            liveChunkTranscripts[index] = text.trim()
+                            updateLiveTranscript()
+                        }
+                    }
+                liveChunkPending.decrementAndGet()
+                runCatching { file.delete() }
             }
-            // Loop back to listening for the next turn.
+        }
+
+        try {
+            while (currentCoroutineContext().isActive) {
+                // --- LISTENING (live) ---
+                bargeInRequested = false
+                liveChunkTranscripts.clear()
+                liveChunkNextIndex.set(0)
+                _uiState.update {
+                    it.copy(
+                        voicePhase = VoicePhase.LISTENING,
+                        voiceHeardText = "",
+                        voiceReplyText = ""
+                    )
+                }
+                val heard = awaitVoiceTurnEndLive()
+                if (heard.isNullOrBlank()) continue
+                _uiState.update { it.copy(voiceHeardText = heard) }
+
+                // --- THINKING (streaming chat) + SPEAKING (streaming TTS) ---
+                _uiState.update { it.copy(voicePhase = VoicePhase.THINKING) }
+                val convId = ensureVoiceConversation(heard)
+                val userMsg = MessageEntity(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = convId,
+                    role = "user",
+                    content = heard,
+                    modelId = _uiState.value.selectedTextModel
+                )
+                repository.insertMessage(userMsg)
+
+                // Sentences stream from the chat into this channel; the speaker job
+                // synthesizes + plays each one as it arrives.
+                val sentenceChannel = Channel<String>(Channel.UNLIMITED)
+                val speakJob = launch {
+                    var player: VoiceController.StreamingPcmPlayer? = null
+                    try {
+                        for (sentence in sentenceChannel) {
+                            if (bargeInRequested) break
+                            repository.synthesizeSpeechStream(sentence) { pcm ->
+                                val p = player ?: voiceController.createPcmPlayer().also {
+                                    player = it
+                                    activePcmPlayer = it
+                                    _uiState.update { s -> s.copy(voicePhase = VoicePhase.SPEAKING) }
+                                }
+                                p.writePcm(pcm)
+                            }.onFailure { err ->
+                                showStatus(err.message ?: "Speech synthesis failed")
+                            }
+                            if (bargeInRequested) break
+                        }
+                    } finally {
+                        val p = player
+                        player = null
+                        activePcmPlayer = null
+                        if (bargeInRequested || !isActive) p?.stopNow()
+                        else p?.stopAndAwaitDrain()
+                    }
+                }
+                // Barge-in monitor: once the reply is actually playing, sustained loud
+                // mic input means the user is talking over it — cut the audio.
+                val bargeInJob = launch {
+                    var loudSince = 0L
+                    while (isActive) {
+                        val speaking = activePcmPlayer != null
+                        val amp = voiceController.liveAmplitude.value
+                        val now = System.currentTimeMillis()
+                        if (speaking && amp > BARGE_IN_AMPLITUDE) {
+                            if (loudSince == 0L) loudSince = now
+                            else if (now - loudSince >= BARGE_IN_HOLD_MS) {
+                                bargeInRequested = true
+                                speakJob.cancel()
+                                break
+                            }
+                        } else {
+                            loudSince = 0L
+                        }
+                        delay(100)
+                    }
+                }
+
+                val chatDeferred = async {
+                    runAssistantStream(convId) { sentence ->
+                        sentenceChannel.trySend(sentence)
+                    }
+                }
+                val (reply, errorMessage) = chatDeferred.await()
+                sentenceChannel.close()
+                speakJob.join()
+                bargeInJob.cancel()
+
+                if (reply.isBlank()) {
+                    if (errorMessage != null) showStatus(errorMessage)
+                    continue
+                }
+                _uiState.update { it.copy(voiceReplyText = reply) }
+
+                if (bargeInRequested) {
+                    // The interrupting speech is already in the live capture; flush its
+                    // partial chunk so it is transcribed as the next turn's first chunk.
+                    voiceController.flushVoiceChunk()?.let { file ->
+                        liveChunkChannel.trySend(file)
+                    }
+                }
+                // Loop back to listening for the next turn.
+            }
+        } finally {
+            chunkConsumer.cancel()
+            liveChunkChannel.close()
         }
     }
 
-    /** Waits until the user stops talking (silence), taps to send, or the turn times out. */
-    private suspend fun awaitVoiceTurnEnd(): File? {
+    /** Joins the current turn's chunk transcripts in order for the live transcript. */
+    private fun updateLiveTranscript() {
+        val ordered = liveChunkTranscripts.entries
+            .sortedBy { it.key }
+            .joinToString(" ") { it.value }
+            .trim()
+        if (ordered.isNotEmpty()) {
+            _uiState.update { it.copy(voiceHeardText = ordered) }
+        }
+    }
+
+    /**
+     * Waits until the user stops talking (silence), taps to send, or the turn times
+     * out, using the live mic amplitude. Then flushes the final partial chunk and
+     * waits briefly for the in-flight chunk transcriptions, and returns the turn's
+     * text (or null when nothing was said).
+     */
+    private suspend fun awaitVoiceTurnEndLive(): String? {
         val silenceThreshold = 800 // mic amplitude 0..32767; quiet room is near 0
         val silenceNeededMs = 2500L
         val noSpeechTimeoutMs = 8000L
@@ -544,7 +750,7 @@ class VeniceViewModel(
                 finishTurnRequested = false
                 break
             }
-            val amp = voiceController.getMaxAmplitude()
+            val amp = voiceController.liveAmplitude.value
             val now = System.currentTimeMillis()
             if (amp > silenceThreshold) {
                 heardSpeech = true
@@ -558,16 +764,21 @@ class VeniceViewModel(
             if (now - startedAt >= maxTurnMs) break
             delay(200)
         }
-        return voiceController.stopRecording()
-    }
-
-    private suspend fun playAudioAndAwait(file: File, messageId: String) {
-        suspendCancellableCoroutine<Unit> { cont ->
-            voiceController.playAudioFile(messageId, file) {
-                if (cont.isActive) cont.resume(Unit)
-            }
-            cont.invokeOnCancellation { voiceController.stopPlayback() }
+        if (!heardSpeech && liveChunkTranscripts.isEmpty()) return null
+        // Flush the final partial chunk and wait for its (and any in-flight)
+        // transcriptions to land, so the turn text is complete.
+        voiceController.flushVoiceChunk()?.let { file ->
+            liveChunkChannel.trySend(file)
         }
+        val deadline = System.currentTimeMillis() + 4000L
+        while (liveChunkPending.get() > 0 && System.currentTimeMillis() < deadline) {
+            delay(100)
+        }
+        val heard = liveChunkTranscripts.entries
+            .sortedBy { it.key }
+            .joinToString(" ") { it.value }
+            .trim()
+        return heard.ifBlank { null }
     }
 
     private suspend fun ensureVoiceConversation(firstText: String): String {
@@ -584,6 +795,7 @@ class VeniceViewModel(
         _uiState.update { it.copy(currentConversationId = created.id) }
         return created.id
     }
+
 
     fun stopStreaming() {
         val job = streamingJob ?: return
@@ -755,5 +967,10 @@ class VeniceViewModel(
                     ) as T
                 }
             }
+
+        /** Mic amplitude that counts as the user talking over the reply (barge-in). */
+        const val BARGE_IN_AMPLITUDE = 3000
+        /** Sustained loudness needed to trigger a barge-in. */
+        const val BARGE_IN_HOLD_MS = 600L
     }
 }

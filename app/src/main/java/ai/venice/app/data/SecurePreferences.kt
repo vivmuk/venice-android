@@ -86,7 +86,7 @@ class SecurePreferences(context: Context) {
     }
 
     fun getDefaultVoice(): String {
-        return prefs.getString(KEY_DEFAULT_VOICE, "af_sky") ?: "af_sky"
+        return prefs.getString(KEY_DEFAULT_VOICE, DEFAULT_VOICE) ?: DEFAULT_VOICE
     }
 
     fun setDefaultVoice(voice: String) {
@@ -134,6 +134,8 @@ class SecurePreferences(context: Context) {
         const val DEFAULT_IMAGE_MODEL = "fluently-xl"
         const val DEFAULT_TTS_MODEL = "tts-kokoro"
         const val DEFAULT_ASR_MODEL = "openai/whisper-large-v3"
+        /** Default voice for the default TTS model (Kokoro). */
+        const val DEFAULT_VOICE = "af_sky"
 
         val PINNED_TEXT_MODELS = listOf(
             "deepseek-v4-1-flash",

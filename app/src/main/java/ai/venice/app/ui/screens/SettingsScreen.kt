@@ -86,6 +86,7 @@ fun SettingsScreen(
     onSelectDefaultTextModel: (String) -> Unit,
     onSelectDefaultImageModel: (String) -> Unit,
     onSelectDefaultTtsModel: (String) -> Unit,
+    onSelectDefaultVoice: (String) -> Unit,
     onSelectDefaultAsrModel: (String) -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
@@ -96,20 +97,17 @@ fun SettingsScreen(
     var defaultTemp by remember { mutableFloatStateOf(prefs.getDefaultTemperature()) }
     var defaultEffort by remember { mutableStateOf(prefs.getDefaultReasoningEffort()) }
     var defaultWebSearch by remember { mutableStateOf(prefs.getDefaultWebSearch()) }
-    var defaultVoice by remember { mutableStateOf(prefs.getDefaultVoice()) }
     var defaultTtsModel by remember { mutableStateOf(prefs.getDefaultTtsModel()) }
     var defaultAsrModel by remember { mutableStateOf(prefs.getDefaultAsrModel()) }
     var systemPrompt by remember { mutableStateOf(prefs.getSystemPrompt()) }
 
     var showClearConfirm by remember { mutableStateOf(false) }
+    var customVoiceInput by remember { mutableStateOf("") }
 
-    val voices = listOf(
-        "af_sky" to "Sky (US Female)",
-        "af_bella" to "Bella (US Female)",
-        "am_adam" to "Adam (US Male)",
-        "am_michael" to "Michael (US Male)",
-        "bf_emma" to "Emma (UK Female)"
-    )
+    // Voices valid for the selected TTS model: the live catalog's model_spec.voices,
+    // else the documented fallback family list. Voices are model-specific — a Kokoro
+    // voice ID sent to xAI (or vice versa) is a 400 from Venice.
+    val voices = VeniceApiClient.voicesForTtsModel(uiState.ttsModels, defaultTtsModel)
 
     Column(
         modifier = Modifier
@@ -482,9 +480,9 @@ fun SettingsScreen(
                         )
                     }
 
-                    // Default TTS Voice
+                    // Default TTS Voice — only voices valid for the selected TTS model.
                     Text(
-                        text = "Default TTS Voice (/audio/speech)",
+                        text = "Default TTS Voice (/audio/speech) — ${VeniceApiClient.formatModelName(defaultTtsModel)}",
                         fontSize = 13.sp,
                         color = TextSecondary
                     )
@@ -494,8 +492,8 @@ fun SettingsScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        voices.forEach { (voiceId, label) ->
-                            val selected = defaultVoice == voiceId
+                        voices.forEach { voiceId ->
+                            val selected = uiState.selectedVoice == voiceId
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
@@ -506,19 +504,62 @@ fun SettingsScreen(
                                         RoundedCornerShape(8.dp)
                                     )
                                     .clickable {
-                                        defaultVoice = voiceId
                                         prefs.setDefaultVoice(voiceId)
+                                        onSelectDefaultVoice(voiceId)
                                     }
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 Text(
-                                    text = label,
+                                    text = voiceId,
                                     fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     color = if (selected) VeniceCyan else TextSecondary,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
                         }
+                        if (voices.isEmpty()) {
+                            Text(
+                                text = "No voice list for this model yet — type a voice ID below.",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+                    // Custom voice ID (e.g. a cloned voice handle vv_… or any model voice).
+                    OutlinedTextField(
+                        value = customVoiceInput,
+                        onValueChange = { customVoiceInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Custom voice ID (optional)") },
+                        placeholder = { Text("e.g. eve, af_heart, vv_…", color = TextMuted) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = VeniceObsidian,
+                            unfocusedContainerColor = VeniceObsidian,
+                            focusedBorderColor = VeniceCyan,
+                            unfocusedBorderColor = VeniceBorder,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                    Button(
+                        onClick = {
+                            val id = customVoiceInput.trim()
+                            if (id.isNotEmpty()) {
+                                prefs.setDefaultVoice(id)
+                                onSelectDefaultVoice(id)
+                                customVoiceInput = ""
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = VeniceCyan,
+                            contentColor = VeniceObsidian
+                        )
+                    ) {
+                        Text(text = "Use custom voice", fontWeight = FontWeight.Bold)
                     }
 
                     // Default TTS Model — every Venice text-to-speech model (live catalog)
