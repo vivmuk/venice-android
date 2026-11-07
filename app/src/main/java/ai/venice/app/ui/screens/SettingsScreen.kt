@@ -84,7 +84,9 @@ fun SettingsScreen(
     onSaveApiKey: (String) -> Unit,
     onClearHistory: () -> Unit,
     onSelectDefaultTextModel: (String) -> Unit,
-    onSelectDefaultImageModel: (String) -> Unit
+    onSelectDefaultImageModel: (String) -> Unit,
+    onSelectDefaultTtsModel: (String) -> Unit,
+    onSelectDefaultAsrModel: (String) -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
     var apiKeyInput by remember { mutableStateOf(prefs.getApiKey()) }
@@ -95,6 +97,8 @@ fun SettingsScreen(
     var defaultEffort by remember { mutableStateOf(prefs.getDefaultReasoningEffort()) }
     var defaultWebSearch by remember { mutableStateOf(prefs.getDefaultWebSearch()) }
     var defaultVoice by remember { mutableStateOf(prefs.getDefaultVoice()) }
+    var defaultTtsModel by remember { mutableStateOf(prefs.getDefaultTtsModel()) }
+    var defaultAsrModel by remember { mutableStateOf(prefs.getDefaultAsrModel()) }
     var systemPrompt by remember { mutableStateOf(prefs.getSystemPrompt()) }
 
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -509,6 +513,86 @@ fun SettingsScreen(
                             ) {
                                 Text(
                                     text = label,
+                                    fontSize = 12.sp,
+                                    color = if (selected) VeniceCyan else TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    // Default TTS Model — every Venice text-to-speech model (live catalog)
+                    Text(
+                        text = "Default TTS Model (/audio/speech) — ${uiState.ttsModels.size} models",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        uiState.ttsModels.forEach { model ->
+                            val selected = defaultTtsModel == model.id
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) VeniceCyan.copy(alpha = 0.18f) else VeniceObsidian)
+                                    .border(
+                                        1.dp,
+                                        if (selected) VeniceCyan else VeniceBorder,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        defaultTtsModel = model.id
+                                        prefs.setDefaultTtsModel(model.id)
+                                        onSelectDefaultTtsModel(model.id)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = model.displayName,
+                                    fontSize = 12.sp,
+                                    color = if (selected) VeniceCyan else TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    // Default Speech Recognition Model — every Venice ASR model (live catalog)
+                    Text(
+                        text = "Speech Recognition Model (/audio/transcriptions) — ${uiState.asrModels.size} models",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        uiState.asrModels.forEach { model ->
+                            val selected = defaultAsrModel == model.id
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) VeniceCyan.copy(alpha = 0.18f) else VeniceObsidian)
+                                    .border(
+                                        1.dp,
+                                        if (selected) VeniceCyan else VeniceBorder,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        defaultAsrModel = model.id
+                                        prefs.setDefaultAsrModel(model.id)
+                                        onSelectDefaultAsrModel(model.id)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = model.displayName,
                                     fontSize = 12.sp,
                                     color = if (selected) VeniceCyan else TextSecondary,
                                     fontWeight = FontWeight.Medium

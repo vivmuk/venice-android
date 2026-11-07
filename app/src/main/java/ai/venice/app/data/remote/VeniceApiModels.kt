@@ -51,7 +51,15 @@ data class ChatCompletionRequest(
     @SerialName("reasoning_effort")
     val reasoningEffort: String? = null,
     @SerialName("venice_parameters")
-    val veniceParameters: VeniceParametersDto? = null
+    val veniceParameters: VeniceParametersDto? = null,
+    @SerialName("stream_options")
+    val streamOptions: StreamOptionsDto? = StreamOptionsDto(includeUsage = true)
+)
+
+@Serializable
+data class StreamOptionsDto(
+    @SerialName("include_usage")
+    val includeUsage: Boolean = true
 )
 
 @Serializable
@@ -72,7 +80,37 @@ data class VeniceParametersDto(
 data class ChatCompletionChunk(
     val id: String? = null,
     val model: String? = null,
-    val choices: List<ChunkChoiceDto> = emptyList()
+    val choices: List<ChunkChoiceDto> = emptyList(),
+    val usage: UsageDto? = null,
+    val cost: CostDto? = null
+)
+
+@Serializable
+data class UsageDto(
+    @SerialName("prompt_tokens")
+    val promptTokens: Int = 0,
+    @SerialName("completion_tokens")
+    val completionTokens: Int = 0,
+    @SerialName("total_tokens")
+    val totalTokens: Int = 0,
+    @SerialName("prompt_tokens_details")
+    val promptTokensDetails: UsageDetailsDto? = null,
+    @SerialName("completion_tokens_details")
+    val completionTokensDetails: UsageDetailsDto? = null
+)
+
+@Serializable
+data class UsageDetailsDto(
+    @SerialName("cached_tokens")
+    val cachedTokens: Int = 0,
+    @SerialName("reasoning_tokens")
+    val reasoningTokens: Int = 0
+)
+
+@Serializable
+data class CostDto(
+    val usd: Double = 0.0,
+    val diem: Double = 0.0
 )
 
 @Serializable
@@ -95,6 +133,18 @@ sealed class StreamEvent {
     data class Delta(val content: String = "", val reasoning: String = "") : StreamEvent()
     data class Done(val finishReason: String? = null) : StreamEvent()
     data class Error(val message: String) : StreamEvent()
+    /** Final usage + cost reported by Venice on the last stream chunk. */
+    data class Usage(
+        val promptTokens: Int,
+        val completionTokens: Int,
+        val totalTokens: Int,
+        val cachedTokens: Int = 0,
+        val reasoningTokens: Int = 0,
+        val costUsd: Double = 0.0,
+        val costDiem: Double = 0.0,
+        /** Completion tokens per second, measured from first token to last. */
+        val tokensPerSecond: Double = 0.0
+    ) : StreamEvent()
 }
 
 @Serializable

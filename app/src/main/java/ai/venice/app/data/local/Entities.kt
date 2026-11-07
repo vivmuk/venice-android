@@ -39,7 +39,13 @@ data class MessageEntity(
     val reasoningContent: String = "",
     val modelId: String = "",
     val createdAt: Long = System.currentTimeMillis(),
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    /** Usage + cost of this assistant reply, from the stream's final usage chunk. */
+    val promptTokens: Int = 0,
+    val completionTokens: Int = 0,
+    val costUsd: Double = 0.0,
+    /** Completion tokens per second, first token -> last token. */
+    val tokensPerSecond: Double = 0.0
 )
 
 @Entity(tableName = "generated_images")

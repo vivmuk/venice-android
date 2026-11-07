@@ -93,6 +93,22 @@ class SecurePreferences(context: Context) {
         prefs.edit().putString(KEY_DEFAULT_VOICE, voice).apply()
     }
 
+    fun getDefaultTtsModel(): String {
+        return prefs.getString(KEY_DEFAULT_TTS_MODEL, DEFAULT_TTS_MODEL) ?: DEFAULT_TTS_MODEL
+    }
+
+    fun setDefaultTtsModel(modelId: String) {
+        prefs.edit().putString(KEY_DEFAULT_TTS_MODEL, modelId).apply()
+    }
+
+    fun getDefaultAsrModel(): String {
+        return prefs.getString(KEY_DEFAULT_ASR_MODEL, DEFAULT_ASR_MODEL) ?: DEFAULT_ASR_MODEL
+    }
+
+    fun setDefaultAsrModel(modelId: String) {
+        prefs.edit().putString(KEY_DEFAULT_ASR_MODEL, modelId).apply()
+    }
+
     fun getSystemPrompt(): String {
         return prefs.getString(KEY_SYSTEM_PROMPT, "") ?: ""
     }
@@ -110,10 +126,14 @@ class SecurePreferences(context: Context) {
         private const val KEY_DEFAULT_REASONING = "default_reasoning_effort"
         private const val KEY_DEFAULT_WEB_SEARCH = "default_web_search"
         private const val KEY_DEFAULT_VOICE = "default_tts_voice"
+        private const val KEY_DEFAULT_TTS_MODEL = "default_tts_model"
+        private const val KEY_DEFAULT_ASR_MODEL = "default_asr_model"
         private const val KEY_SYSTEM_PROMPT = "default_system_prompt"
 
         const val DEFAULT_TEXT_MODEL = "deepseek-v4-1-flash"
         const val DEFAULT_IMAGE_MODEL = "fluently-xl"
+        const val DEFAULT_TTS_MODEL = "tts-kokoro"
+        const val DEFAULT_ASR_MODEL = "openai/whisper-large-v3"
 
         val PINNED_TEXT_MODELS = listOf(
             "deepseek-v4-1-flash",

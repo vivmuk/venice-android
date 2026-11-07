@@ -53,15 +53,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.StopCircle
@@ -124,7 +127,10 @@ fun ChatScreen(
     onToggleSpeak: (MessageEntity) -> Unit,
     onNavigateSettings: () -> Unit,
     onRefreshModels: () -> Unit,
-    onShowStatus: (String) -> Unit
+    onShowStatus: (String) -> Unit,
+    onStartVoice: () -> Unit,
+    onFinishVoiceTurn: () -> Unit,
+    onEndVoice: () -> Unit
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -141,6 +147,28 @@ fun ChatScreen(
             onToggleMic()
         } else {
             onShowStatus("Microphone permission is required for voice transcription.")
+        }
+    }
+
+    val voicePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            onStartVoice()
+        } else {
+            onShowStatus("Microphone permission is required for voice chat.")
+        }
+    }
+
+    fun requestVoiceMode() {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            onStartVoice()
+        } else {
+            voicePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -209,6 +237,14 @@ fun ChatScreen(
                     contentDescription = "Change model",
                     tint = TextSecondary,
                     modifier = Modifier.size(16.dp)
+                )
+            }
+
+            IconButton(onClick = { requestVoiceMode() }) {
+                Icon(
+                    imageVector = Icons.Default.GraphicEq,
+                    contentDescription = "Voice chat",
+                    tint = if (uiState.isVoiceMode) VeniceMint else VeniceCyan
                 )
             }
 
@@ -535,6 +571,15 @@ fun ChatScreen(
             )
         }
     }
+
+    // Voice-to-voice conversation overlay
+    if (uiState.isVoiceMode) {
+        VoiceConversationOverlay(
+            uiState = uiState,
+            onFinishTurn = onFinishVoiceTurn,
+            onEnd = onEndVoice
+        )
+    }
 }
 
 @Composable
@@ -783,6 +828,17 @@ private fun MessageBubble(
                 textColor = if (message.isError) VeniceRed else TextPrimary
             )
 
+            // Usage stats: tokens, token speed, cost (from the stream's usage chunk).
+            if (!isUser && !message.isError && message.completionTokens > 0) {
+                Text(
+                    text = formatUsageStats(message),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            }
+
             // Message Action Row (Copy, Speak TTS, Regenerate)
             Row(
                 modifier = Modifier
@@ -820,6 +876,24 @@ private fun MessageBubble(
             }
         }
     }
+}
+
+/**
+ * "1,724 tokens · 38 tok/s · $0.0001" — tokens, generation speed, and the exact
+ * cost Venice reported for this reply (USD; DIEM cost is the same number).
+ */
+private fun formatUsageStats(message: MessageEntity): String {
+    val total = message.promptTokens + message.completionTokens
+    val tokens = "%,d tokens".format(total)
+    val speed = if (message.tokensPerSecond > 0) {
+        " · %.0f tok/s".format(message.tokensPerSecond)
+    } else ""
+    val cost = if (message.costUsd > 0) {
+        val formatted = if (message.costUsd < 1.0) "$%.4f".format(message.costUsd)
+        else "$%.2f".format(message.costUsd)
+        " · $formatted"
+    } else ""
+    return tokens + speed + cost
 }
 
 @Composable
@@ -922,8 +996,15 @@ private fun ModelPickerSheetContent(
     onRefresh: () -> Unit,
     onSelect: (String) -> Unit
 ) {
-    val pinned = models.filter { it.isPinned }
-    val others = models.filter { !it.isPinned }
+    var searchQuery by remember { mutableStateOf("") }
+    val query = searchQuery.trim().lowercase()
+    val matches: (VeniceModel) -> Boolean = { model ->
+        query.isEmpty() ||
+            model.displayName.lowercase().contains(query) ||
+            model.id.lowercase().contains(query)
+    }
+    val pinned = models.filter { it.isPinned && matches(it) }
+    val others = models.filter { !it.isPinned && matches(it) }
 
     Column(
         modifier = Modifier
@@ -943,7 +1024,7 @@ private fun ModelPickerSheetContent(
                     color = TextPrimary
                 )
                 Text(
-                    text = "Pinned DeepSeek flagship models + live /models?type=text catalog",
+                    text = "Pinned DeepSeek flagship models + live /models?type=text catalog (${models.size} models)",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -964,6 +1045,45 @@ private fun ModelPickerSheetContent(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Search ${models.size} models…", color = TextMuted) },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            },
+            trailingIcon = if (searchQuery.isNotEmpty()) {
+                {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear search",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            } else null,
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = VeniceObsidian,
+                unfocusedContainerColor = VeniceObsidian,
+                focusedBorderColor = VeniceCyan,
+                unfocusedBorderColor = VeniceBorder,
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary
+            )
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
 

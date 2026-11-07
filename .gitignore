@@ -30,3 +30,6 @@ secrets.properties
 Thumbs.db
 build-tests/*.log
 build-tests/__pycache__/
+
+# Icon generation working files (source WebP; the PNGs in res/ are the deliverables)
+icon-work/

@@ -114,6 +114,14 @@ class VeniceRepository(
         return apiClient.fetchImageModels()
     }
 
+    suspend fun fetchTtsModels(): Result<List<VeniceModel>> {
+        return apiClient.fetchTtsModels()
+    }
+
+    suspend fun fetchAsrModels(): Result<List<VeniceModel>> {
+        return apiClient.fetchAsrModels()
+    }
+
     suspend fun generateAndSaveImage(
         model: String,
         prompt: String,
@@ -140,10 +148,14 @@ class VeniceRepository(
     }
 
     suspend fun transcribeAudio(file: File): Result<String> {
-        return apiClient.transcribeAudio(file)
+        return apiClient.transcribeAudio(file, model = prefs.getDefaultAsrModel())
     }
 
     suspend fun synthesizeSpeech(text: String): Result<File> {
-        return apiClient.synthesizeSpeech(text = text, voice = prefs.getDefaultVoice())
+        return apiClient.synthesizeSpeech(
+            text = text,
+            voice = prefs.getDefaultVoice(),
+            model = prefs.getDefaultTtsModel()
+        )
     }
 }

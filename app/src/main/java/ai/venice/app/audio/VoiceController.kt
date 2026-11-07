@@ -52,8 +52,16 @@ class VoiceController(private val context: Context) {
         outFile
     }
 
-    fun stopRecording(): File? {
-        val recorder = mediaRecorder
+    /** Live mic level (0..32767) while recording; 0 when not recording. Used for silence detection. */
+    fun getMaxAmplitude(): Int {
+        return try {
+            mediaRecorder?.maxAmplitude ?: 0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    fun stopRecording(): File? {        val recorder = mediaRecorder
         val file = currentRecordingFile
         mediaRecorder = null
         currentRecordingFile = null

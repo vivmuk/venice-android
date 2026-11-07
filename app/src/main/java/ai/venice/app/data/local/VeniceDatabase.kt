@@ -9,6 +9,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -66,7 +68,7 @@ interface VeniceDao {
         MessageEntity::class,
         GeneratedImageEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class VeniceDatabase : RoomDatabase() {
@@ -76,6 +78,16 @@ abstract class VeniceDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: VeniceDatabase? = null
 
+        /** v1 -> v2: per-reply usage stats (tokens, cost, token speed) on messages. */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN promptTokens INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN completionTokens INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN costUsd REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN tokensPerSecond REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
         fun getInstance(context: Context): VeniceDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -83,6 +95,7 @@ abstract class VeniceDatabase : RoomDatabase() {
                     VeniceDatabase::class.java,
                     "venice_app.db"
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }
